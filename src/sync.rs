@@ -17,11 +17,11 @@ pub struct RedisStreamClient {
 }
 
 pub struct RedisStreamMessage {
-    key: String,
-    stream_key: &'static str,
-    group_key: &'static str,
-    inner_map: HashMap<String, Value>,
-    connection: Arc<Mutex<Connection>>,
+    pub key: String,
+    pub stream_key: &'static str,
+    pub group_key: &'static str,
+    pub inner_map: HashMap<String, Value>,
+    pub connection: Arc<Mutex<Connection>>,
 }
 
 impl std::fmt::Debug for RedisStreamMessage {
