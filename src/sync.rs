@@ -97,6 +97,13 @@ impl RedisStreamClient {
         &self.consumer_key
     }
 
+    pub fn ack_message_id(&self, msg_id: &str) -> Result<(), redis::RedisError> {
+        self.connection
+            .lock()
+            .unwrap()
+            .xack(&self.consumer_key, self.consumer_group, &[msg_id])
+    }
+
     pub fn read_next(&mut self) -> Result<Option<RedisStreamMessage>, redis::RedisError> {
         let mut data: StreamReadReply = {
             let mut connection = self.connection.lock().unwrap();
