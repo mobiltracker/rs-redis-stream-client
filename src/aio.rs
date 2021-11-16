@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-
 use redis::{
     aio::MultiplexedConnection,
-    streams::{StreamInfoGroupsReply, StreamReadOptions, StreamReadReply},
-    AsyncCommands, Value,
+    streams::{StreamInfoGroupsReply, StreamReadOptions},
+    AsyncCommands,
 };
+
+use crate::{parse_stream_msg, StreamMsg};
 
 pub struct RedisStreamClient {
     connection: MultiplexedConnection,
@@ -12,39 +12,6 @@ pub struct RedisStreamClient {
     stream_key: &'static str,
     consumer_key: String,
     options: StreamReadOptions,
-}
-
-pub struct RedisStreamMessage {
-    key: String,
-    stream_key: &'static str,
-    group_key: &'static str,
-    inner_map: HashMap<String, Value>,
-    connection: MultiplexedConnection,
-}
-
-impl std::fmt::Debug for RedisStreamMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RedisStreamMessage")
-            .field("key", &self.key)
-            .field("stream_key", &self.stream_key)
-            .field("group_key", &self.group_key)
-            .field("inner_map", &self.inner_map)
-            .finish()
-    }
-}
-
-impl RedisStreamMessage {
-    pub fn get_field(&self, k: &str) -> Option<&Value> {
-        self.inner_map.get(k)
-    }
-    pub async fn ack(mut self) -> Result<(), redis::RedisError> {
-        let _: () = self
-            .connection
-            .xack(self.stream_key, self.group_key, &[self.key])
-            .await?;
-
-        Ok(())
-    }
 }
 
 impl RedisStreamClient {
@@ -100,123 +67,19 @@ impl RedisStreamClient {
         &self.consumer_key
     }
 
-    pub async fn read_next(&mut self) -> Result<Option<RedisStreamMessage>, redis::RedisError> {
-        let mut data: redis::Value = self
+    pub async fn read_next(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
+        let data: redis::Value = self
             .connection
             .xread_options(&[self.stream_key], &[">"], &self.options)
             .await?;
 
-        let msg = parse_stream_msg(data).unwrap().unwrap();
-
-        todo!();
-
-        // if data.keys.is_empty() {
-        //     return Ok(None);
-        // }
-
-        // let mut msgs = data.keys.pop().expect("infalible").ids;
-
-        // if msgs.is_empty() {
-        //     return Ok(None);
-        // }
-
-        // let msg = msgs.pop().expect("infalible");
-
-        // Ok(Some(RedisStreamMessage {
-        //     inner_map: msg.map,
-        //     key: msg.id,
-        //     connection: self.connection.clone(),
-        //     group_key: self.consumer_group,
-        //     stream_key: self.stream_key,
-        // }))
+        parse_stream_msg(data)
     }
-}
-
-#[derive(Debug, Default)]
-pub struct StreamMsg {
-    stream_key: String,
-    id: String,
-    data: Vec<Vec<String>>,
-}
-
-macro_rules! redis_stream_err {
-    () => {};
-    ($msg: expr) => {
-        Err(redis::RedisError::from(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            $msg,
-        )))
-    };
-}
-
-fn parse_stream_msg(data: Value) -> Result<Option<StreamMsg>, redis::RedisError> {
-    let mut result = StreamMsg::default();
-    match data {
-        Value::Bulk(values) => {
-            let v = values.into_iter().next();
-            if v.is_none() {
-                return Ok(None);
-            }
-            match v.unwrap() {
-                Value::Bulk(v) => {
-                    let mut vals_iter = v.into_iter();
-                    let stream_key = match vals_iter.next() {
-                        Some(Value::Data(d)) => String::from_utf8(d).unwrap(),
-                        _ => return redis_stream_err!("Missing stream key from msg"),
-                    };
-
-                    result.stream_key = stream_key;
-
-                    let msg_data = vals_iter.next();
-                    match msg_data {
-                        Some(Value::Bulk(data)) => {
-                            let first_msg = data.into_iter().next();
-                            match first_msg {
-                                Some(Value::Bulk(msg)) => {
-                                    let mut msg_iter = msg.into_iter();
-
-                                    let msg_id = match msg_iter.next() {
-                                        Some(Value::Data(d)) => String::from_utf8(d).unwrap(),
-                                        _ => {
-                                            return redis_stream_err!(
-                                                "Missing message if from message"
-                                            )
-                                        }
-                                    };
-
-                                    let key_vals = msg_iter
-                                        .map(|v| match v {
-                                            Value::Bulk(b) => b
-                                                .into_iter()
-                                                .map(|v| match v {
-                                                    Value::Data(data) => {
-                                                        String::from_utf8(data).unwrap()
-                                                    }
-                                                    // TODO: REsult here
-                                                    _ => panic!("Invalid data type for key_vals"),
-                                                })
-                                                .collect::<Vec<_>>(),
-                                            _ => {
-                                                panic!("Invalid data type for key_vals")
-                                            }
-                                        })
-                                        .collect::<Vec<_>>();
-                                    result.id = msg_id;
-                                    result.data = key_vals;
-                                }
-                                _ => return redis_stream_err!("Invalid data type for first_msg"),
-                            }
-                        }
-                        _ => return redis_stream_err!("Invalid data type for msg_data"),
-                    }
-                }
-                _ => return redis_stream_err!("Invalid data type for first bulk read"),
-            }
-        }
-        other => return redis_stream_err!(format!("Invalid data: {:?}", other)),
+    pub async fn ack_message_id(&mut self, msg_id: &str) -> Result<(), redis::RedisError> {
+        self.connection
+            .xack(&self.consumer_key, self.consumer_group, &[msg_id])
+            .await
     }
-
-    return Ok(Some(result));
 }
 
 #[cfg(test)]
@@ -232,7 +95,11 @@ mod tests {
         let test_stream_key = "test-stream-key";
         let mut conn = client.get_multiplexed_tokio_connection().await.unwrap();
         let _: () = conn
-            .xadd(test_stream_key, "*", &[("key", "value")])
+            .xadd(
+                test_stream_key,
+                "*",
+                &[("key", "value"), ("key2", "value2")],
+            )
             .await
             .unwrap();
 
@@ -243,7 +110,7 @@ mod tests {
 
         let msg = stream_client.read_next().await.unwrap().unwrap();
         println!("{:?}", msg);
-        msg.ack().await.unwrap();
+        stream_client.ack_message_id(&msg.id).await.unwrap();
         let msg = stream_client.read_next().await.unwrap();
         assert!(msg.is_none())
     }
