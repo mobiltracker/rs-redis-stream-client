@@ -84,7 +84,8 @@ pub fn parse_stream_msg(data: Value) -> Result<Option<StreamMsg>, redis::RedisEr
                 _ => return redis_stream_err!("Invalid data type for first bulk read"),
             }
         }
-        other => return redis_stream_err!(format!("Invalid data: {:?}", other)),
+        Value::Nil => return Ok(None),
+        other => return redis_stream_err!(format!("Invalid data format: {:?}", other)),
     }
 
     return Ok(Some(result));
