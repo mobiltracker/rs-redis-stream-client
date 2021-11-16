@@ -1,10 +1,10 @@
 use redis::{
     aio::MultiplexedConnection,
     streams::{StreamInfoGroupsReply, StreamReadOptions},
-    AsyncCommands,
+    AsyncCommands, RedisError,
 };
 
-use crate::{parse_stream_msg, StreamMsg};
+use crate::{parse_stream_msg, FromStreamMsg, StreamMsg};
 
 pub struct RedisStreamClient {
     connection: MultiplexedConnection,
@@ -67,7 +67,7 @@ impl RedisStreamClient {
         &self.consumer_key
     }
 
-    pub async fn read_next(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
+    pub async fn read_next_raw(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
         let data: redis::Value = self
             .connection
             .xread_options(&[self.stream_key], &[">"], &self.options)
@@ -75,6 +75,25 @@ impl RedisStreamClient {
 
         parse_stream_msg(data)
     }
+
+    pub async fn read_next<T, E>(&mut self) -> Result<Option<T>, redis::RedisError>
+    where
+        T: FromStreamMsg<E>,
+        E: Into<RedisError>,
+    {
+        let data: redis::Value = self
+            .connection
+            .xread_options(&[self.stream_key], &[">"], &self.options)
+            .await?;
+
+        let msg = parse_stream_msg(data)?
+            .map(|msg| T::from_stream_msg(msg))
+            .transpose()
+            .map_err(|e| e.into())?;
+
+        Ok(msg)
+    }
+
     pub async fn ack_message_id(&mut self, msg_id: &str) -> Result<(), redis::RedisError> {
         self.connection
             .xack(&self.consumer_key, self.consumer_group, &[msg_id])
@@ -108,10 +127,10 @@ mod tests {
                 .await
                 .unwrap();
 
-        let msg = stream_client.read_next().await.unwrap().unwrap();
+        let msg = stream_client.read_next_raw().await.unwrap().unwrap();
         println!("{:?}", msg);
         stream_client.ack_message_id(&msg.id).await.unwrap();
-        let msg = stream_client.read_next().await.unwrap();
+        let msg = stream_client.read_next_raw().await.unwrap();
         assert!(msg.is_none())
     }
 }

@@ -1,4 +1,6 @@
-use redis::Value;
+use std::fmt::Debug;
+
+use redis::{RedisError, Value};
 
 pub mod aio;
 pub mod sync;
@@ -8,6 +10,12 @@ pub struct StreamMsg {
     pub stream_key: String,
     pub id: String,
     pub data: Vec<String>,
+}
+
+pub trait FromStreamMsg<Err: Into<RedisError>> {
+    fn from_stream_msg(data: StreamMsg) -> Result<Self, Err>
+    where
+        Self: Sized;
 }
 
 macro_rules! redis_stream_err {
