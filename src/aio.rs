@@ -10,7 +10,7 @@ pub struct RedisStreamClient {
     connection: MultiplexedConnection,
     consumer_group: &'static str,
     stream_key: &'static str,
-    consumer_key: String,
+    pub consumer_key: String,
     options: StreamReadOptions,
 }
 
