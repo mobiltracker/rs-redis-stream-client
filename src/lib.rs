@@ -96,5 +96,5 @@ pub fn parse_stream_msg(data: Value) -> Result<Option<StreamMsg>, redis::RedisEr
         other => return redis_stream_err!(format!("Invalid data format: {:?}", other)),
     }
 
-    return Ok(Some(result));
+    Ok(Some(result))
 }

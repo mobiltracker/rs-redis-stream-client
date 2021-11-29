@@ -10,7 +10,7 @@ pub struct RedisStreamClient {
     connection: MultiplexedConnection,
     consumer_group: &'static str,
     stream_key: &'static str,
-    pub consumer_key: String,
+    consumer_key: String,
     options: StreamReadOptions,
 }
 
@@ -65,6 +65,15 @@ impl RedisStreamClient {
 
     pub fn consumer_key(&self) -> &str {
         &self.consumer_key
+    }
+
+    pub fn with_consumer_key(self, consumer_key: &str) -> RedisStreamClient {
+        let options = self.options.group(self.consumer_group, consumer_key);
+        Self {
+            options,
+            consumer_key: consumer_key.to_owned(),
+            ..self
+        }
     }
 
     pub async fn read_next_raw(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
