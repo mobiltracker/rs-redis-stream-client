@@ -12,7 +12,6 @@ pub struct RedisStreamClient {
     stream_key: &'static str,
     consumer_name: String,
     options: StreamReadOptions,
-    ack: bool,
 }
 
 impl RedisStreamClient {
@@ -44,14 +43,12 @@ impl RedisStreamClient {
             stream_key,
             consumer_name: consumer_name.to_string(),
             options,
-            ack: true,
         })
     }
 
     pub fn with_no_ack(self) -> RedisStreamClient {
         Self {
             options: self.options.noack(),
-            ack: false,
             ..self
         }
     }
@@ -69,21 +66,15 @@ impl RedisStreamClient {
         }
     }
 
+    pub async fn read_next_pending(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
+        let data: redis::Value = self
+            .connection
+            .xread_options(&[self.stream_key], &["0"], &self.options)
+            .await?;
+        parse_stream_msg(data)
+    }
+
     pub async fn read_next_raw(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
-        // Read from pending first if ack is enabled
-        if self.ack {
-            let data: redis::Value = self
-                .connection
-                .xread_options(&[self.stream_key], &["0"], &self.options)
-                .await?;
-
-            let msg = parse_stream_msg(data)?;
-
-            if msg.is_some() {
-                return Ok(msg);
-            }
-        }
-
         let data: redis::Value = self
             .connection
             .xread_options(&[self.stream_key], &[">"], &self.options)
