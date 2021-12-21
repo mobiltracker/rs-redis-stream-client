@@ -84,6 +84,7 @@ pub fn parse_stream_msg(data: Value) -> Result<Option<StreamMsg>, redis::RedisEr
                                     result.data = key_vals;
                                 }
                                 Some(Value::Nil) => return Ok(None),
+                                None => return Ok(None),
                                 val => {
                                     return redis_stream_err!(format!(
                                         "Invalid data type for first_msg: {:?}",
