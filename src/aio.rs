@@ -109,7 +109,7 @@ impl RedisStreamClient {
 
     pub async fn ack_message_id(&mut self, msg_id: &str) -> Result<(), redis::RedisError> {
         self.connection
-            .xack(&self.consumer_name, self.consumer_group, &[msg_id])
+            .xack(&self.stream_key, self.consumer_group, &[msg_id])
             .await
     }
 }

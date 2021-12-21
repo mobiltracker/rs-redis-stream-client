@@ -101,7 +101,7 @@ impl RedisStreamClient {
         self.connection
             .lock()
             .unwrap()
-            .xack(&self.consumer_key, self.consumer_group, &[msg_id])
+            .xack(&self.stream_key, self.consumer_group, &[msg_id])
     }
 
     pub fn read_next(&mut self) -> Result<Option<RedisStreamMessage>, redis::RedisError> {
