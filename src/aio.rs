@@ -66,10 +66,13 @@ impl RedisStreamClient {
         }
     }
 
-    pub async fn read_next_pending_raw(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
+    pub async fn read_next_pending_raw(
+        &mut self,
+        last_msg_id: &str,
+    ) -> Result<Option<StreamMsg>, redis::RedisError> {
         let data: redis::Value = self
             .connection
-            .xread_options(&[self.stream_key], &["0"], &self.options)
+            .xread_options(&[self.stream_key], &[last_msg_id], &self.options)
             .await?;
         parse_stream_msg(data)
     }
@@ -98,13 +101,16 @@ impl RedisStreamClient {
         Ok(msg)
     }
 
-    pub async fn read_next_pending<T, E>(&mut self) -> Result<Option<T>, redis::RedisError>
+    pub async fn read_next_pending<T, E>(
+        &mut self,
+        last_msg_id: &str,
+    ) -> Result<Option<T>, redis::RedisError>
     where
         T: FromStreamMsg<E>,
         E: Into<RedisError>,
     {
         let msg = self
-            .read_next_pending_raw()
+            .read_next_pending_raw(last_msg_id)
             .await?
             .map(|msg| T::from_stream_msg(msg))
             .transpose()
