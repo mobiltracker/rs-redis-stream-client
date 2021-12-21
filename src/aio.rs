@@ -10,8 +10,9 @@ pub struct RedisStreamClient {
     connection: MultiplexedConnection,
     consumer_group: &'static str,
     stream_key: &'static str,
-    consumer_key: String,
+    consumer_name: String,
     options: StreamReadOptions,
+    ack: bool,
 }
 
 impl RedisStreamClient {
@@ -19,7 +20,7 @@ impl RedisStreamClient {
         mut connection: MultiplexedConnection,
         stream_key: &'static str,
         consumer_group: &'static str,
-        consumer_prefix: &str,
+        consumer_name: &str,
     ) -> Result<RedisStreamClient, redis::RedisError> {
         let xgroup_info: StreamInfoGroupsReply = connection.xinfo_groups(stream_key).await?;
 
@@ -34,49 +35,55 @@ impl RedisStreamClient {
                 .await?;
         }
 
-        let stream_consumer_info: redis::streams::StreamInfoConsumersReply = connection
-            .xinfo_consumers(stream_key, consumer_group)
-            .await?;
-
-        let consumer_key = format!(
-            "{}-{}",
-            consumer_prefix,
-            stream_consumer_info.consumers.len()
-        );
-
         let options = StreamReadOptions::default()
-            .group(consumer_group, consumer_key.clone())
+            .group(consumer_group, consumer_name.clone())
             .count(1);
         Ok(Self {
             connection,
             consumer_group,
             stream_key,
-            consumer_key,
+            consumer_name: consumer_name.to_string(),
             options,
+            ack: true,
         })
     }
 
     pub fn with_no_ack(self) -> RedisStreamClient {
         Self {
             options: self.options.noack(),
+            ack: false,
             ..self
         }
     }
 
     pub fn consumer_key(&self) -> &str {
-        &self.consumer_key
+        &self.consumer_name
     }
 
-    pub fn with_consumer_key(self, consumer_key: &str) -> RedisStreamClient {
-        let options = self.options.group(self.consumer_group, consumer_key);
+    pub fn with_consumer_name(self, consumer_name: &str) -> RedisStreamClient {
+        let options = self.options.group(self.consumer_group, consumer_name);
         Self {
             options,
-            consumer_key: consumer_key.to_owned(),
+            consumer_name: consumer_name.to_owned(),
             ..self
         }
     }
 
     pub async fn read_next_raw(&mut self) -> Result<Option<StreamMsg>, redis::RedisError> {
+        // Read from pending first if ack is enabled
+        if self.ack {
+            let data: redis::Value = self
+                .connection
+                .xread_options(&[self.stream_key], &["0"], &self.options)
+                .await?;
+
+            let msg = parse_stream_msg(data)?;
+
+            if msg.is_some() {
+                return Ok(msg);
+            }
+        }
+
         let data: redis::Value = self
             .connection
             .xread_options(&[self.stream_key], &[">"], &self.options)
@@ -90,12 +97,9 @@ impl RedisStreamClient {
         T: FromStreamMsg<E>,
         E: Into<RedisError>,
     {
-        let data: redis::Value = self
-            .connection
-            .xread_options(&[self.stream_key], &[">"], &self.options)
-            .await?;
-
-        let msg = parse_stream_msg(data)?
+        let msg = self
+            .read_next_raw()
+            .await?
             .map(|msg| T::from_stream_msg(msg))
             .transpose()
             .map_err(|e| e.into())?;
@@ -105,7 +109,7 @@ impl RedisStreamClient {
 
     pub async fn ack_message_id(&mut self, msg_id: &str) -> Result<(), redis::RedisError> {
         self.connection
-            .xack(&self.consumer_key, self.consumer_group, &[msg_id])
+            .xack(&self.consumer_name, self.consumer_group, &[msg_id])
             .await
     }
 }
