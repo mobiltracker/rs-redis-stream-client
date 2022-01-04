@@ -30,7 +30,7 @@ impl RedisStreamClient {
 
         if !is_created {
             let _: () = connection
-                .xgroup_create(stream_key, consumer_group, "$")
+                .xgroup_create_mkstream(stream_key, consumer_group, "$")
                 .await?;
         }
 
@@ -53,7 +53,7 @@ impl RedisStreamClient {
         }
     }
 
-    pub fn consumer_key(&self) -> &str {
+    pub fn consumer_name(&self) -> &str {
         &self.consumer_name
     }
 
