@@ -21,12 +21,18 @@ impl RedisStreamClient {
         consumer_group: &'static str,
         consumer_name: &str,
     ) -> Result<RedisStreamClient, redis::RedisError> {
-        let xgroup_info: StreamInfoGroupsReply = connection.xinfo_groups(stream_key).await?;
+        let xgroup_info: Result<StreamInfoGroupsReply, _> =
+            connection.xinfo_groups(stream_key).await;
 
-        let is_created = xgroup_info
-            .groups
-            .into_iter()
-            .any(|info| info.name == consumer_group);
+        let is_created = if xgroup_info.is_err() {
+            false
+        } else {
+            xgroup_info
+                .unwrap()
+                .groups
+                .into_iter()
+                .any(|info| info.name == consumer_group)
+        };
 
         if !is_created {
             let _: () = connection
