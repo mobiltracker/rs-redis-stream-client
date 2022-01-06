@@ -11,9 +11,19 @@ pub struct StreamMsg {
     pub id: String,
     pub data: Vec<String>,
 }
+#[derive(Debug, Default)]
+pub struct StreamMsgPendingCount {
+    pub stream_msg: StreamMsg,
+    pub pending_count: i64,
+}
+#[derive(Debug, Default)]
+pub struct PendingStreamMsg<T: FromStreamMsg> {
+    pub stream_msg: T,
+    pub pending_count: i64,
+}
 
-pub trait FromStreamMsg<Err: Into<RedisError>> {
-    fn from_stream_msg(data: StreamMsg) -> Result<Self, Err>
+pub trait FromStreamMsg {
+    fn from_stream_msg(data: StreamMsg) -> Result<Self, RedisError>
     where
         Self: Sized;
 }
