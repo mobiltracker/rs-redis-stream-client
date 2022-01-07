@@ -1,7 +1,7 @@
 use redis::{
     aio::MultiplexedConnection,
     streams::{StreamInfoGroupsReply, StreamReadOptions},
-    AsyncCommands, FromRedisValue, RedisError,
+    AsyncCommands, FromRedisValue,
 };
 
 use crate::{parse_stream_msg, FromStreamMsg, PendingStreamMsg, StreamMsg, StreamMsgPendingCount};
@@ -116,10 +116,9 @@ impl RedisStreamClient {
         parse_stream_msg(data)
     }
 
-    pub async fn read_next<T, E>(&mut self) -> Result<Option<T>, redis::RedisError>
+    pub async fn read_next<T>(&mut self) -> Result<Option<T>, redis::RedisError>
     where
         T: FromStreamMsg,
-        E: Into<RedisError>,
     {
         let msg = self
             .read_next_raw()
